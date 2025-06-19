@@ -1,5 +1,5 @@
 # SymBosonKit
-A lightweight SymPy 1.14\* add‑on that finally makes symbolic work with **Bosonic ladder operators** painless for quantum‑optics and circuit‑QED researchers.
+A lightweight SymPy 1.14\* add‑on that finally makes symbolic work with **Bosonic ladder operators** painless for quantum‑optics and circuit‑QED researchers. Takes inspiration from the deprecated [SymPsi](https://github.com/sympsi/sympsi/tree/master) library.
 
 ---
 
@@ -18,11 +18,6 @@ A lightweight SymPy 1.14\* add‑on that finally makes symbolic work with **Bo
 ## Quick installation
 
 Copy `symbosonkit.py` into your project folder:
-
-```bash
-# inside your repo
-cp path/to/sympy_utils.py symbosonkit.py
-```
 
 That’s it—no extra dependencies beyond SymPy 1.14*.
 Typical workflow — from the accompanying notebook
