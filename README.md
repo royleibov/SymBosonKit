@@ -7,9 +7,9 @@ A lightweight SymPy 1.14\* add‑on that finally makes symbolic work with **Bo
 
 | What it gives you | How it helps |
 |-------------------|--------------|
-| **`similarity_transform`** | Performs \(e^{A} B e^{-A}\) while *automatically switching* to closed‑form Lie‑algebra identities when they converge faster than a naïve BCH series. |
-| **`hamiltonian_transformation`** | One‑liner to obtain \(U H U^{\dagger} + i\dot U U^{\dagger}\); indispensable for moving to rotating frames, displacements and derived effective models. |
-| **`_ad` (multiple‑commutator operator)** | Implements  \(\mathrm{ad}^n_{A}(X)=\underbrace{[A,[A,\dots[A}_{n\ \text{times}},X]\dots]]\) with full operator linearity. |
+| **`similarity_transform`** | Performs $(e^{A} B e^{-A})$ while *automatically switching* to closed‑form Lie‑algebra identities when they converge faster than a naïve BCH series. |
+| **`hamiltonian_transformation`** | One‑liner to obtain $(UHU^{\dagger} + i \dot U U^{\dagger})$; indispensable for moving to rotating frames, displacements and derived effective models. |
+| **`_ad` (multiple‑commutator operator)** | Implements  $(\mathrm{ad}^n_{A}(X)=\underbrace{[A,[A,\dots[A}_{n\ \text{times}},X]\dots]])$ with full operator linearity. |
 | **`collect_terms`, `coeff_of`** | Reliable coefficient extraction for *non‑commuting* operators (where `sympy.Expr.coeff` fails). |
 | **`drop_terms_containing`, `drop_c_number_terms`** | Fast pruning of rapidly rotating or purely \(c\)-number parts—great for RWA and dispersive limits. |
 
