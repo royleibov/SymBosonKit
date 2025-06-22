@@ -305,25 +305,44 @@ def hamiltonian_transformation(H, U: Operator, *, max_order=6, use_bch_only=Fals
 
     # Handle +i d(e^U)/dt Dagger(e^U) term
     time_symbols = [s for s in A.free_symbols if s.is_real and s.name == 't']
+    Ht = sp.S.Zero
+
     if time_symbols:
         t = time_symbols[0]
         dA_dt = sp.diff(A, t)
-        H += sp.I * dA_dt * exp(A) * Dagger(U)
+        Ht += sp.I * dA_dt * exp(A) * Dagger(U)
 
     if not ops:
         # If no operators, just return the expression
-        return H
+        return H + Ht
 
+    # Populate ops with the Dagger's as well
+    ops_extended = set()
     for op in ops:
-        ops_subs = {op: similarity_transform(A, op, max_order=max_order, use_bch_only=use_bch_only)}
+        ops_extended.add(op)
+        if isinstance(op, Dagger):
+            ops_extended.add(op.args[0])  # Add non-dagger version
+        else:
+            ops_extended.add(Dagger(op))   # Add dagger version
 
-        # Substitute the operator in the Hamiltonian
-        H = H.subs(ops_subs)
+    ops = list(ops_extended)
+
+    # Use dummy operators to prevent cascading substitutions
+    dummy_to_transformed = {}
+    original_to_dummy = {}
+
+    for i, op in enumerate(ops):
+        dummy_op = Symbol(f'dummy_op_{i}', commutative=False)
+        original_to_dummy[op] = dummy_op
+        dummy_to_transformed[dummy_op] = similarity_transform(A, op, max_order=max_order, use_bch_only=use_bch_only)
+
+    # Two-step substitution to avoid cascading
+    H = H.subs(original_to_dummy).subs(dummy_to_transformed)
 
     if expand:
-        return _normal(H)
+        return _normal(H + Ht)
     else:
-        return H
+        return H + Ht
     
 
 # -------------------------------------------------------------------------
