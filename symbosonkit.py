@@ -410,7 +410,10 @@ def drop_terms_containing(e, e_drops: list, deep=False):
             # If deep is True, recursively check each factor
             new_args = [drop_terms_containing(arg, e_drops, deep=True) for arg in e.args]
             e = Mul(*new_args, evaluate=False)
-    
+            
+    elif any([(e_drop - e).expand() == 0 for e_drop in e_drops]):
+        # If the expression itself is in e_drops, return zero
+        return sp.S.Zero
     # Return the modified expression
     return e
 
@@ -513,8 +516,8 @@ def _split_comm_noncomm(term):
       • noncomm  is the product of non‑commuting factors.
     """
     if term.is_Add:
-        comm = Add(*(arg for arg in operator_coeffs.args if arg.is_commutative))
-        noncomm = Mul(*(arg for arg in operator_coeffs.args if not arg.is_commutative), evaluate=False)
+        comm = Add(*(arg for arg in term.args if arg.is_commutative))
+        noncomm = Mul(*(arg for arg in term.args if not arg.is_commutative), evaluate=False)
         return comm, noncomm
 
     if term.is_Mul:
@@ -616,7 +619,11 @@ def coeff_of(e, op):
     if e.is_Add:
         for term in e.args:
             comm, noncomm = _split_comm_noncomm(term)
-            if op in term.args or term == op or (not op.is_commutative and noncomm == op):
+            if not op.is_commutative:
+                # Check if 'op' is the non-commutative tail of the term
+                if noncomm == op:
+                    return term.coeff(op)
+            elif op in term.args or term == op:
                 return term.coeff(op)
 
     elif e.is_Mul:
@@ -625,6 +632,81 @@ def coeff_of(e, op):
             return e.coeff(op)
 
     return sp.S.Zero  # If 'op' is not found, return zero
+
+# ---------------------------------------------------------------------
+# Expand terms utils
+# ---------------------------------------------------------------------
+
+def expand_terms(e, ops, doit=False, **hints):
+    """
+    Expand terms in the expression 'e' that contain the operator 'op'.
+    
+    Parameters
+    ----------
+    e : sympy expression
+        The expression to expand.
+    ops : Operator | sympy expression | list[Operator | sympy expression]
+        Single operator/expression or a list of operators/expressions to expand terms for.
+    doit : bool, optional
+        If True, calls .doit() on the expression after expansion, by default False.
+    hints : dict
+        Additional keyword arguments for .expand().
+        
+    Returns
+    -------
+    sympy expression
+        The expression with terms containing 'op' expanded.
+        
+    Notes
+    -----
+    - If 'e' is an instance of sympy.Add, it will expand each term that contains 'op'.
+    - If 'e' is not an Add instance, it will try to expand recursively.
+    - If 'op' is a list, the function will process each operator sequentially.
+    
+    Examples
+    --------
+    >>> from sympy import symbols, Add
+    >>> from sympy.physics.quantum import Operator
+    >>> x, y = symbols('x y')
+    >>> A = Operator('A')
+    >>> expr = Add(x, A, y*A)
+    >>> expand_terms(expr, A)
+    Add(x, A + y*A)
+    """
+
+    if not isinstance(ops, (list, tuple)):
+        ops = [ops]
+
+    if isinstance(e, Add):
+        new_args = []
+        for term in e.args:
+            for op in ops:
+                comm, noncomm = _split_comm_noncomm(term)
+                if op in term.args or term == op or (not op.is_commutative and noncomm == op):
+                    # Expand the term
+                    term = term.expand(**hints)
+                    if doit:
+                        term = term.doit().factor()
+            new_args.append(term)
+        result = Add(*new_args)
+
+    elif isinstance(e, Mul):
+        for op in ops:
+            comm, noncomm = _split_comm_noncomm(term)
+            if op in term.args or term == op or (not op.is_commutative and noncomm == op):
+                # Expand the product
+                e = e.expand(**hints)
+                if doit:
+                    e = e.doit().factor()
+        result = e
+
+    else:
+        result = e  # If 'e' is not an Add or Mul, return it unchanged
+
+    if doit and not isinstance(e, (Add, Mul)):
+        result = result.doit()
+
+    return result
 
 
 
