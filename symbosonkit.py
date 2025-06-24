@@ -320,7 +320,7 @@ def hamiltonian_transformation(H, U: Operator, *, max_order=6, use_bch_only=Fals
     ops_extended = set()
     for op in ops:
         ops_extended.add(op)
-        if isinstance(op, Dagger):
+        if len(op.args) == 2 and op.args[1] == 0: # isinstance(op, Dagger)
             ops_extended.add(op.args[0])  # Add non-dagger version
         else:
             ops_extended.add(Dagger(op))   # Add dagger version
@@ -416,6 +416,56 @@ def drop_terms_containing(e, e_drops: list, deep=False):
         return sp.S.Zero
     # Return the modified expression
     return e
+
+def drop_terms_matching(expr, patterns, deep=False):
+    """
+    Remove every additive term that *matches* at least one pattern.
+
+    Parameters
+    ----------
+    expr : sympy.Expr
+        Typically an expanded, normal‑ordered Hamiltonian or equation.
+    patterns : sympy.Expr | list[Expr]
+        One or several patterns built with Wild symbols, e.g.
+
+            k = Wild('k', exclude=[0])     # any non‑zero integer/expr
+            fast  = exp(I*k*t)             # ±ω t harmonic
+            beats = exp(I*k*t)*Dagger(a)   # dressed version
+
+    deep : bool  (default False)
+        Recursively descend into Mul / nested Add pieces.
+
+    Notes
+    -----
+    * A term is dropped as soon as **any** factor in it matches a pattern.
+    * If `deep=True` the function also removes matching factors inside a
+      product and then re‑assembles the remaining ones.
+    """
+    if not isinstance(patterns, (list, tuple)):
+        patterns = [patterns]
+
+    # --- helper: does *obj* match one of the patterns? ------------------
+    def _matches(obj):
+        return any(obj.match(pat) is not None for pat in patterns)
+
+    # --- recursive core -------------------------------------------------
+    if expr.is_Add:
+        kept = []
+        for term in expr.args:
+            # optional recursion
+            term_new = drop_terms_matching(term, patterns, deep) if deep else term
+            if not _matches(term_new):
+                kept.append(term_new)
+        return Add(*kept)
+
+    if expr.is_Mul and deep:
+        factors = [f for f in expr.args if not _matches(f)]
+        if not factors:                     # every factor matched → term gone
+            return sp.S.Zero
+        return Mul(*factors, evaluate=False)
+
+    # atom
+    return sp.S.Zero if _matches(expr) else expr
 
 def drop_c_number_terms(e):
     """
@@ -551,7 +601,8 @@ def _single_collect(expr, op):
                     continue
         else:
             # If 'op' is commutative, we can just check if it is in the term
-            if op in comm.args or op == comm:
+            coeff = comm.coeff(op)
+            if coeff or op == comm:
                 # This term matches → collect it
                 collected += comm.coeff(op) * noncomm
                 continue
@@ -590,6 +641,106 @@ def collect_terms(expr, op):
         expr = _single_collect(expr, single_op)
 
     return expr
+
+def _factor_mode(f):
+    """Return mode label (string) for  a  or  Dagger(a)."""
+    if len(f.args) == 2 and f.args[1] == 0: # isinstance(f, Dagger)
+        return str(f.args[0])
+    if isinstance(f, sp.Pow):
+        base = f.base
+        if len(base.args) == 2 and base.args[1] == 0: # isinstance(base, Dagger)
+            return str(base.args[0])
+        return str(base)
+    return str(f)
+
+# --- product‑level re‑ordering --------------------------------------
+
+def reorder_mul(nc, mode_order=[]):
+    """Return a new non‑commutative product with factors grouped by mode.
+
+    Parameters
+    ----------
+    nc : sympy.Mul | 1
+        The non‑commutative part of a term.
+    mode_order : list[Operator]
+        Desired global order of modes.  Modes not in the list keep their
+        relative order after the listed ones.
+    """
+    if nc == 1 or not isinstance(nc, sp.Mul):
+        return nc
+
+    factors = list(nc.args)
+    # group by mode
+    groups = {}
+    for f in factors:
+        m = _factor_mode(f)
+        groups.setdefault(m, []).append(f)
+
+    ordered_modes = [str(mode) for mode in mode_order]
+    tail = [m for m in groups.keys() if m not in ordered_modes]
+    full_order = ordered_modes + tail
+
+    new_factors = []
+    for m in full_order:
+        if m in groups:
+            new_factors.extend(groups[m])  # keep intra‑mode order
+    return sp.Mul(*new_factors, evaluate=False)
+
+# --- additive re‑ordering -------------------------------------------
+
+def _add_key(noncomm):
+    """
+    Canonical key for additive sorting.
+
+    • field 0  : tuple of mode names *ignoring daggers* – this groups
+                 every string together with its h.c. partner.
+    • field 1  : 0 if the whole string starts with “Dagger”, else 1  –
+                 ensures the †‑string is immediately BEFORE the plain one.
+    • field 2  : full string repr (tie‑breaker, keeps powers/products
+                 in deterministic order).
+    """
+    if noncomm == 1:
+        return (('<scalar>',), 0, '')
+
+    # grab mode labels in order of appearance (dagger‑blind)
+    if isinstance(noncomm, sp.Mul):
+        labels = []
+        for f in noncomm.args:
+            if isinstance(f, sp.Pow):
+                m = _factor_mode(f.base)
+                labels.append(f'{m}^{f.exp}')
+            else:
+                labels.append(_factor_mode(f))
+        labels = ''.join(labels)
+    elif isinstance(noncomm, sp.Pow):
+        labels = f'{_factor_mode(noncomm.base)}^{noncomm.exp}'
+    else:
+        labels = _factor_mode(noncomm)
+
+    dagger_flag = 0 if str(noncomm).startswith('Dagger(') else 1
+    return (labels, dagger_flag, str(noncomm))
+
+
+def reorder_add(expr, mode_order=[]):
+    """Return an *Add* with
+         1. each term's non‑commutative tail internally re‑ordered via
+            `reorder_mul` (same‑mode factors adjacent, obeying *mode_order*)
+         2. additive terms sorted so dagger‑pairs appear next to each other.
+
+    Note: **does not modify coefficients**; collect first, reorder later.
+    """
+    if not isinstance(expr, sp.Add):
+        return expr
+
+    new_terms = []
+    for t in expr.args:
+        comm, nc = _split_comm_noncomm(t)
+        nc_new   = reorder_mul(nc, mode_order)
+        new_terms.append(comm*nc_new)
+
+    # sort additive terms by canonical key
+    new_terms.sort(key=lambda term: _add_key(_split_comm_noncomm(term)[1]))
+    return sp.Add(*new_terms, evaluate=False)
 
 
 # ---------------------------------------------------------------------
@@ -749,6 +900,6 @@ if __name__ == "__main__":
     # Define an anti-Hermitian operator U
     U = sp.I * omega * t * (adag * a)
     # Perform the transformation
-    transformed_H = hamiltonian_transform(H, U, max_order=6, use_bch_only=False)
+    transformed_H = hamiltonian_transformation(H, U, max_order=6, use_bch_only=False)
     # Check if the transformed Hamiltonian is correct
     assert sp.simplify(transformed_H) == 0
