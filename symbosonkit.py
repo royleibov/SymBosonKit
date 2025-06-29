@@ -90,6 +90,7 @@ def _replace_op_func(e, variable):
         return e
         
 class OperatorFunction(Operator):
+    """TODO: This is not implemented yet."""
 
     @property
     def operator(self):
